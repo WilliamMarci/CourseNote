@@ -188,3 +188,47 @@ BSP模型: Bulk Synchronous Parallel Model
 
 SPMD: Single Program Multiple Data
 MPMD: Multiple Program Multiple Data
+
+
+## MPI
+
+通信密集型计算
+
+
+MPI_Send, 在数据发送后，消息数据已经从发送方取出
+MPI_Recv, 在数据接收后，消息数据已经存入接收方的存储
+
+这意味着这算是一次同步
+
+这种通信是阻塞的(blocking)
+
+![1760517472955](image/paraprog/1760517472955.png)
+
+
+后续扩展到了非阻塞通信(non-blocking communication)MPI_Isend, MPI_Irecv
+
+![1760517695950](image/paraprog/1760517695950.png)
+
+发送方：函数返回时，MPI已经成功的从用户程序空间取走了消息。不同模式，对网络系统的可用容量和接收方的执行进度有不同的预期
+
+◼ 标准模式：MPI_Send。对接收方的进度无要求，网络系统有足够的容量完成被发送数据的传输
+
+◼ 缓冲模式：MPI_Bsend。对接收方的进度、网络系统的容量均无要求，用户程序已为消息发送提供了足够大的额外缓存
+
+给MPI runtime 说这一块空间buffer交给runtime管理，不会对其进行读写。runtime在接收方接收时才把这部分发出去。
+
+MPI_Buffer_attach(IN buffer,IN size):在用户空间为MPI runtime提供一个
+buffer，每个进程只能有一个这样的buffer。
+
+◼ 同步模式：MPI_Ssend。函数返回时，接收方已经提交了接收请求，隐含网络系统有足够的容量完成被发送数据的传输
+
+当接收方执行到recv时，告诉发送方在接收了。
+
+◼ 就绪模式：MPI_Rsend。函数执行前，接收方已经提交了接收请求，隐含网络系统的容量无要求
+
+配合MPI_Irecv使用， 当接收方的接收空间已经准备好时，发送方才发送数据
+
+
+接收方：函数返回时，MPI已经成功地将消息数据存储到了用户程序空间
+
+◼ MPI_Recv
