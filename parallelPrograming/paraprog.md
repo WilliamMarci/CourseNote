@@ -294,3 +294,85 @@ MPI_COMM_SPAWN: 基于进程集创建新的组内通信子，可以指定进程�
 组间通讯时, Alltoallw 可以实现不同进程间不同数据类型和数据量的通信. 不需要在组内通讯时使用.
 
 MPI_Barrier(MPI_Comm comm) 程序调试时用
+
+
+## MPI文件读写机制
+
+MPI文件视图: MPI_File_set_view
+
+文件中存储的一组元素， 在文件中的存储空间可以不是连续的。
+
+视图分为两类:
+- shared view 共享文件视图 每个共享文件只有一个共享视图, 依靠组内通信子实现
+- individual file view 私有文件视图 每个进程分别有一个私有视图
+
+disp: 可访问文件的起始位置偏移量
+etype: 文件中基本数据类型
+ftype: 视图中的数据在文件中的布局方式
+
+写一次文件, 准备好数据后一起写入
+```cpp
+MPI_File_open(MPI_Comm comm, const char *filename, int amode, MPI_Info info, MPI_File *fh); \\ 打开文件
+MPI_File_set_size(MPI_File fh, MPI_Offset size); \\ 设置文件大小 每个进程都有. datasize*size (每个进程的数据量*进程数)
+MPI_File_set_view(MPI_File fh, MPI_Offset disp, MPI_Datatype etype, MPI_Datatype filetype, const char *datarep, MPI_Info info); \\ datarep: 系统文件系统, 可以用"native" 
+MPI_File_write_all(MPI_File fh, const void *buf, int count, MPI_Datatype datatype, MPI_Status *status); \\ 集体写文件, 这是阻塞的, 可以提高IO效率
+```
+
+接着再写入
+```cpp
+MPI_File_get_size(MPI_File fh, MPI_Offset *size); \\ 获取文件大小
+disp= fsize + rank * extent * VSIZE; \\ 计算偏移量
+MPI_File_set_size(fh, disp + extent * VSIZE * size); \\ 设置文件大小
+MPI_File_set_view(MPI_File fh, disp, etype, filetype, "native", MPI_INFO_NULL); \\ 设置文件视图
+for(i=0; i<VSIZE; i++) {
+  buf[i]= rank * VSIZE + i; \\ 准备数据 数据类型是etype
+  MPI_File_write(fh, &buf[i], 1, etype, &status); \\ 写入数据, 这里是非集体写, 做一块写一块
+}
+```
+
+共享视图:
+```cpp
+MPI_File_get_size(MPI_File fh, MPI_Offset *size); \\ 获取文件大小
+MPI_File_set_view(MPI_File fh, size, etype, filetype, "native", MPI_INFO_NULL); \\ 设置文件视图 把所有的进程的视图都设置到文件末尾
+MPI_File_seek_shared(MPI_File fh, MPI_Offset offset, MPI_SEEK_END); \\ 设置共享文件指针到文件末尾
+MPI_File_set_atomicity(MPI_File fh, bool atomicity); \\ 设置原子性
+/* get data  */
+MPI_File_write_shared(MPI_File fh, const void *buf, int count, MPI_Datatype datatype, MPI_Status *status); \\ 共享视图写文件
+MPI_File_sync(MPI_File fh); \\ 同步文件
+MPI_Type_free(MPI_Datatype *datatype); \\ 释放自定义数据类型
+MPI_File_close(MPI_File *fh); \\ 关闭文件
+```
+
+### 单边通信
+
+RMA机制, 一个进程可以利用此机制直接访问另一个进程的地址空间
+
+内存窗口: window
+
+![1762936200502](image/paraprog/1762936200502.png)
+
+- post: 准备阶段, 允许远程进程访问本地窗口,
+- put: 将数据从本地窗口写入远程窗口
+- get: 将数据从远程窗口读入本地窗口
+- complete: 完成阶段, 本地进程完成对远程窗口的访问
+- wait: 等待指定的操作完成 这一步是阻塞的
+
+```cpp
+MPI_Win win;
+MPI_Win_fence(int assert, MPI_Win win); \\ assert是一个标志位, 表示当前操作的性质, 用于通信同步 ~ 1. complete 2. wait 3. post 4.start
+```
+
+被访问远程内存的地址用一个三元组<win, proc, disp>表示
+- 通过**内存窗口** win, 找到对应到组内通信子
+- 通过**进程号** proc, 找到对应的远程进程<base, size, disp_unit>
+- 被访问内存在进程proc的绝对地址为base+ disp*disp_unit, disp 是相对于窗口起始地址的偏移量
+
+## 局部性
+
+- 空间局部性
+- 时间局部性
+
+二维卷积
+Im2col + MEC
+
+
